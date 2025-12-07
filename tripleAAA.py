@@ -154,3 +154,150 @@ def add_film_rating(data_manager, user_id, film_id, rating):
         user.watched_films[film_id] = rating
         return True
     return False
+
+
+from abc import ABC, abstractmethod
+
+class RecommendationStrategy(ABC):
+    def __init__(self, data_manager):
+        self.data_manager = data_manager
+        self.users = data_manager.users
+        self.films = data_manager.films
+    @abstractmethod
+    def recommend(self, user):
+        pass
+
+class recomend_by_rating(RecommendationStrategy):
+    def __init__(self, data_manager):
+        super().__init__(data_manager)
+        self.users = data_manager.users
+        self.films = data_manager.films
+
+    def recommend(self, user):
+        if not user.watched_films:
+            return []
+
+        avr_rating = 0
+        count = 0
+        for rate in user.watched_films.values():
+            avr_rating += rate
+            count += 1
+        avr_rating /= count
+
+        result = []
+
+        for film_id, film in self.data_manager.films.items():
+            if film_id in user.watched_films:
+                continue
+
+            ratings = []
+            for other_user in self.data_manager.users.values():
+                if film_id in other_user.watched_films:
+                    ratings.append(other_user.watched_films[film_id])
+
+            if ratings and (sum(ratings) / len(ratings)) >= avr_rating:
+                result.append(film_id)
+
+        return result
+
+class recomend_by_genre(RecommendationStrategy):
+    def __init__(self, data_manager):
+        super().__init__(data_manager)
+        self.users = data_manager.users
+        self.films = data_manager.films
+
+    def recommend(self, user):  # Измените recommend_by_genre на recommend
+        if not user.preferred_genres:
+            return []
+
+        result = []
+
+        for film_id, film in self.data_manager.films.items():
+            if film_id in user.watched_films:
+                continue
+
+            for genre in film.genres:
+                if genre in user.preferred_genres:
+                    result.append(film_id)
+                    break
+
+        return result
+
+
+class recomend_by_same_users(RecommendationStrategy):
+    def __init__(self, data_manager):
+        super().__init__(data_manager)
+        self.users = data_manager.users
+        self.films = data_manager.films
+
+    def recommend(self, user):
+        if not user.watched_films:
+            return []
+        result = []
+
+        similar_users = []
+        for other_id, other_user in self.users.items():
+            if other_id == user.identifier:
+                continue
+
+            common_films = 0
+            for film_id, rating in user.watched_films.items():
+                if film_id in other_user.watched_films:
+                    if abs(rating - other_user.watched_films[film_id]) <= 2:
+                        common_films += 1
+
+            if common_films > 0:
+                similar_users.append(other_user)
+
+        for similar_user in similar_users:
+            for film_id, rating in similar_user.watched_films.items():
+                if film_id not in user.watched_films and film_id not in result:
+                    if rating >= 7:
+                        result.append(film_id)
+
+        return result
+
+def choose_mode():
+    print("1 - по рейтингу")
+    print("2 - по жанру")
+    print("3 - по похожим пользователям")
+    choice = input("выбери: ")
+    return choice
+
+
+def get_rec(data_manager, user):
+    choice = choose_mode()
+
+    if choice == "1":
+        s = recomend_by_rating(data_manager)
+        film_ids = s.recommend(user)
+        films = []
+        for film_id in film_ids:
+            film = data_manager.get_film(film_id)
+            if film:
+                films.append(film)
+        return films, "по рейтингу"
+
+    if choice == "2":
+        s = recomend_by_genre(data_manager)
+        film_ids = s.recommend(user)
+        films = []
+        for film_id in film_ids:
+            film = data_manager.get_film(film_id)
+            if film:
+                films.append(film)
+        return films, "по жанру"
+
+    if choice == "3":
+        s = recomend_by_same_users(data_manager)
+        film_ids = s.recommend(user)
+        films = []
+        for film_id in film_ids:
+            film = data_manager.get_film(film_id)
+            if film:
+                films.append(film)
+        return films, "по похожим"
+
+    return [], "не выбрано"
+
+
