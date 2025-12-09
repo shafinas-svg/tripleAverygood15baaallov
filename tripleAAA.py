@@ -54,7 +54,7 @@ class Genre(Enum):
     ROMANCE = "Романтика"
     ANIMATION = "Анимация"
     ADVENTURE = "Приключения"
-
+    CRIME = "Криминал"
 # - Реализовать менеджер данных для хранения фильмов и пользователей
 
 class DataManager:
