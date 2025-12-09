@@ -300,4 +300,245 @@ def get_rec(data_manager, user):
 
     return [], "не выбрано"
 
+def input_int_or_none(prompt, min_v=None, max_v=None):
+    """Ввод целого числа или пустой строки -> None."""
+    while True:
+        s = input(prompt).strip()
+        if s == "":
+            return None
+        try:
+            v = int(s)
+            if (min_v is not None and v < min_v) or (max_v is not None and v > max_v):
+                print(f"Введите число в диапазоне [{min_v}, {max_v}] или Enter для пропуска.")
+                continue
+            return v
+        except ValueError:
+            print("Неверный ввод. Введите целое число или нажмите Enter.")
+
+def register_cli(data_manager):
+    name = input("Введите имя для регистрации: ").strip()
+    if not name:
+        print("Имя не может быть пустым.")
+        return None
+    user = add_user(data_manager, name)
+    print(f"Пользователь зарегистрирован: {user.name} (ID {user.identifier})")
+    return user
+
+def login_cli(data_manager):
+    if not data_manager.users:
+        print("Нет пользователей. Сначала зарегистрируйтесь.")
+        return None
+    print("Список пользователей:")
+    for uid, u in data_manager.users.items():
+        print(f"{uid}: {u.name} (оценок: {len(u.watched_films)})")
+    uid = input_int_or_none("Введите ID пользователя для входа (или Enter): ")
+    if uid is None:
+        return None
+    user = data_manager.get_user(uid)
+    if not user:
+        print("Пользователь с таким ID не найден.")
+        return None
+    print(f"Вход выполнен: {user.name}")
+    return user
+
+def show_all_films_cli(data_manager, only_unwatched_by=None):
+    print("\n--- Фильмы в базе ---")
+    for film_id, film in data_manager.films.items():
+        if only_unwatched_by and film_id in only_unwatched_by.watched_films:
+            continue
+        print(f"{film_id}. {film.name} ({film.year}) — реж. {film.director}, рейтинг: {film.rating}")
+
+def view_film_details_cli(data_manager):
+    fid = input_int_or_none("Введите ID фильма для просмотра (или Enter): ")
+    if fid is None:
+        return
+    film = data_manager.get_film(fid)
+    if not film:
+        print("Фильм не найден.")
+        return
+    genres = ", ".join([g.value for g in film.genres])
+    print(f"\n{film.name} ({film.year})")
+    print(f"Режиссер: {film.director}")
+    print(f"Жанры: {genres}")
+    print(f"Рейтинг: {film.rating}\n")
+
+def rate_film_cli(data_manager, user):
+    show_all_films_cli(data_manager)
+    fid = input_int_or_none("Введите ID фильма, который хотите оценить (или Enter): ")
+    if fid is None:
+        return
+    if fid not in data_manager.films:
+        print("Фильм не найден.")
+        return
+    rating = input_int_or_none("Введите оценку (1-10): ", 1, 10)
+    if rating is None:
+        print("Оценка не введена.")
+        return
+    ok = add_film_rating(data_manager, user.identifier, fid, rating)
+    if ok:
+        print(f"Оценка сохранена: {data_manager.get_film(fid).name} -> {rating}")
+    else:
+        print("Не удалось сохранить оценку.")
+
+def set_preferences_cli(user):
+    all_genres = list(Genre)
+    print("Доступные жанры:")
+    for i, g in enumerate(all_genres, start=1):
+        print(f"{i} - {g.value}")
+    s = input("Введите номера жанров через запятую для добавления в предпочтения (или Enter): ").strip()
+    if not s:
+        return
+    parts = [p.strip() for p in s.split(",")]
+    added = 0
+    for p in parts:
+        if not p.isdigit():
+            continue
+        idx = int(p)
+        if 1 <= idx <= len(all_genres):
+            user.add_preferred_genre(all_genres[idx-1])
+            added += 1
+    print(f"Добавлено предпочтительных жанров: {added}")
+    print("Текущие предпочтения:", ", ".join([g.value for g in user.preferred_genres]) or "нет")
+
+def remove_preferences_cli(user):
+    if not user.preferred_genres:
+        print("У вас нет предпочтений.")
+        return
+    print("Текущие предпочтения:")
+    for i, g in enumerate(user.preferred_genres, start=1):
+        print(f"{i} - {g.value}")
+    s = input("Введите номера жанров для удаления через запятую (или Enter): ").strip()
+    if not s:
+        return
+    parts = [p.strip() for p in s.split(",")]
+    removed = 0
+
+    to_remove = []
+    for p in parts:
+        if not p.isdigit():
+            continue
+        idx = int(p)
+        if 1 <= idx <= len(user.preferred_genres):
+            to_remove.append(user.preferred_genres[idx-1])
+    for g in to_remove:
+        if g in user.preferred_genres:
+            user.preferred_genres.remove(g)
+            removed += 1
+    print(f"Удалено: {removed}")
+    print("Оставшиеся предпочтения:", ", ".join([g.value for g in user.preferred_genres]) or "нет")
+
+def get_recommendations_cli(data_manager, user):
+
+    print("Выбор стратегии рекомендаций:")
+    print("1 - по рейтингу")
+    print("2 - по жанру")
+    print("3 - по похожим пользователям")
+    mode = choose_mode()
+
+    films, label = get_rec(data_manager, user)
+    if not films:
+        print("Рекомендаций не найдено по выбранной стратегии.")
+        return
+
+
+    print("Фильтрация рекомендаций (нажмите Enter чтобы пропустить):")
+    min_rating = input("Минимальный рейтинг (например 8.0): ").strip()
+    min_year = input("Минимальный год выпуска (например 2000): ").strip()
+    try:
+        min_rating_val = float(min_rating) if min_rating else None
+    except ValueError:
+        min_rating_val = None
+    try:
+        min_year_val = int(min_year) if min_year else None
+    except ValueError:
+        min_year_val = None
+
+    filtered = []
+    for f in films:
+        if min_rating_val is not None and getattr(f, "rating", 0) < min_rating_val:
+            continue
+        if min_year_val is not None and getattr(f, "year", 0) < min_year_val:
+            continue
+        filtered.append(f)
+
+    if not filtered:
+        print("Нет фильмов, удовлетворяющих фильтрам.")
+        return
+
+    print(f"\nРекомендации ({label}):")
+    for f in filtered:
+        genres = ", ".join(g.value for g in f.genres)
+        print(f"{f.identifier}. {f.name} ({f.year}) — реж. {f.director}, жанры: {genres}, рейтинг: {f.rating}")
+
+def show_current_user(user):
+    if not user:
+        print("Пользователь не выбран.")
+        return
+    print(user)
+    print("Предпочтения:", ", ".join([g.value for g in user.preferred_genres]) or "нет")
+    print("Просмотренные фильмы и оценки:")
+    if not user.watched_films:
+        print("  нет")
+    else:
+        for fid, score in user.watched_films.items():
+            print(f"  ID {fid} -> оценка {score}")
+
+def main_cli():
+    dm = DataManager()
+    load_test_data(dm)
+    current_user = None
+    print("Тестовые данные загружены.")
+    while True:
+        print("\n=== Меню системы рекомендаций ===")
+        print("1 - Регистрация")
+        print("2 - Вход")
+        print("3 - Просмотреть все фильмы")
+        print("4 - Просмотреть детали фильма")
+        print("5 - Оценить фильм (нужно войти)")
+        print("6 - Настройка предпочтений (нужно войти)")
+        print("7 - Удалить предпочтения (нужно войти)")
+        print("8 - Получить рекомендации (нужно войти)")
+        print("9 - Показать текущего пользователя")
+        print("0 - Выход")
+        choice = input("Выберите действие: ").strip()
+        if choice == "1":
+            current_user = register_cli(dm)
+        elif choice == "2":
+            current_user = login_cli(dm)
+        elif choice == "3":
+            show_all_films_cli(dm)
+        elif choice == "4":
+            view_film_details_cli(dm)
+        elif choice == "5":
+            if not current_user:
+                print("Сначала войдите в систему.")
+            else:
+                rate_film_cli(dm, current_user)
+        elif choice == "6":
+            if not current_user:
+                print("Сначала войдите в систему.")
+            else:
+                set_preferences_cli(current_user)
+        elif choice == "7":
+            if not current_user:
+                print("Сначала войдите в систему.")
+            else:
+                remove_preferences_cli(current_user)
+        elif choice == "8":
+            if not current_user:
+                print("Сначала войдите в систему.")
+            else:
+                get_recommendations_cli(dm, current_user)
+        elif choice == "9":
+            show_current_user(current_user)
+        elif choice == "0":
+            print("Выход. До свидания!")
+            break
+        else:
+            print("Неверный выбор. Попробуйте снова.")
+
+
+if __name__ == "__main__":
+    main_cli()
+
 
